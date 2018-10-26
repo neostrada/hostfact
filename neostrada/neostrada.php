@@ -449,7 +449,7 @@ class Neostrada implements IRegistrar
      * @param $type
      * @return bool
      */
-    function updateContact($handle, $whois, $type = HANDLE_OWNER) {
+    public function updateContact($handle, $whois, $type = HANDLE_OWNER) {
         $prefix = '';
 
         switch ($type) {
@@ -644,33 +644,15 @@ class Neostrada implements IRegistrar
     }
 
     /**
-     * Update the nameservers for the given domain.
+     * Update nameservers of a domain.
      *
-     * @param string $domain The domain to be changed.
-     * @param array $nameservers The new set of nameservers.
-     * @return bool True if the update was succesfull; False otherwise;
+     * @param $domain
+     * @param array $nameservers
+     * @return bool
      */
-    function updateNameServers($domain, $nameservers = array()) {
-        /**
-         * Step 1) update nameservers for domain
-         */
-        $response 	= true;
-        $error_msg 	= '';
-
-        /**
-         * Step 2) provide feedback to WeFact
-         */
-        if($response === true)
-        {
-            // Change nameservers is succesfull
-            return true;
-        }
-        else
-        {
-            // Nameservers cannot be changed
-            $this->Error[] 	= sprintf("YourName: Error while changing nameservers for '%s': %s", $domain, $error_msg);
-            return false;
-        }
+    public function updateNameServers($domain, $nameservers = []) {
+        $this->Error[] = 'Changing nameservers is not supported yet';
+        return false;
     }
 
     /**
@@ -679,7 +661,7 @@ class Neostrada implements IRegistrar
      * @return array()
      */
     static function getVersionInformation() {
-        require_once("3rdparty/domain/neostrada/version.php"); //TODO: change your class name
+        require_once('3rdparty/domain/neostrada/version.php');
         return $version;
     }
 
