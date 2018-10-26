@@ -2,7 +2,7 @@
 
 This module enables resellers of Neostrada to sell domain registrations and transfers through HostFact.
 
-**Disclamer**
+### Disclamer
 This module is currently in beta. It is strongly recommended to use this module in your test environment only. Using it in production is at your own risk.
 
 ## Installation
