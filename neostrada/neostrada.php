@@ -200,13 +200,15 @@ class Neostrada implements IRegistrar
 
         if ($domains = $client->getDomains()) {
             foreach ($domains as $domain) {
-                $rc[] = [
-                    'Domain' => $domain['description'],
-                    'Information' => [
-                        'expiration_date' => (new DateTime($domain['paid_until']))->format('Y-m-d'),
-                        'registration_date' => (new DateTime($domain['start_date']))->format('Y-m-d')
-                    ]
-                ];
+                if (!$domain['is_external']) {
+                    $rc[] = [
+                        'Domain' => $domain['description'],
+                        'Information' => [
+                            'expiration_date' => (new DateTime($domain['paid_until']))->format('Y-m-d'),
+                            'registration_date' => (new DateTime($domain['start_date']))->format('Y-m-d')
+                        ]
+                    ];
+                }
             }
         } else {
             $this->Error[] = 'Could not retrieve domains';
@@ -555,7 +557,7 @@ class Neostrada implements IRegistrar
 
         $rc = [];
 
-        if ($holders = $client->getHolders() && $client->getCountries()) {
+        if (($holders = $client->getHolders()) && $client->getCountries()) {
             foreach ($holders as $holder) {
                 // Get the country code based on the country ID
                 if ($country = $client->getCountryById($holder['country_id'])) {

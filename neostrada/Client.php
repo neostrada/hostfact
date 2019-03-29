@@ -78,7 +78,7 @@ class Client
         $response = $this->client->get('holders');
 
         if (($holders = $this->getResult($response)) && isset($holders['results'])) {
-            $rc = $this->holders = $holders['results'];
+            $rc = $holders['results'];
         }
 
         return $rc;
