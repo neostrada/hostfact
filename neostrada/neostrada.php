@@ -1,10 +1,12 @@
 <?php
 
-require_once 'vendor/autoload.php';
 require_once '3rdparty/domain/IRegistrar.php';
 require_once '3rdparty/domain/standardfunctions.php';
+require_once 'vendor/autoload.php';
+require_once 'Http.php';
+require_once 'Client.php';
 
-use GuzzleHttp\Client;
+use Neostrada\Client;
 use GuzzleHttp\RequestOptions;
 
 class Neostrada implements IRegistrar
@@ -66,23 +68,6 @@ class Neostrada implements IRegistrar
     private $className = __CLASS__;
 
     /**
-     * GuzzleClient to connect to registrar API.
-     *
-     * @var Client
-     */
-    private $client;
-
-    /**
-     * Neostrada constructor.
-     */
-    public function __construct()
-    {
-        $this->client = new Client([
-            'base_uri' => 'https://api.neostrada.com/api/'
-        ]);
-    }
-
-    /**
      * Check if a domain is available.
      *
      * @param $domain
@@ -90,26 +75,9 @@ class Neostrada implements IRegistrar
      */
     public function checkDomain($domain)
     {
-        $rc = false;
+        $client = new Client($this->Password);
 
-        try {
-            $response = $this->client->post('whois', [
-                RequestOptions::FORM_PARAMS => [
-                    'domain' => $domain,
-                    'access_token' => $this->Password
-                ]
-            ]);
-
-            if ($response->getStatusCode() === 200) {
-                $response = json_decode($response->getBody()->getContents(), true);
-
-                if ($response['available'] == 210) {
-                    $rc = true;
-                }
-            }
-        } catch (Exception $exception) {}
-
-        return $rc;
+        return $client->isAvailable($domain);
     }
 
     /**
@@ -122,10 +90,12 @@ class Neostrada implements IRegistrar
      */
     public function registerDomain($domain, $nameservers = [], $whois = null)
     {
+        $client = new Client($this->Password);
+
         $rc = false;
 
         if ($ownerHandle = $this->getHandle($whois, HANDLE_OWNER)) {
-            $rc = $this->placeOrder($domain, $ownerHandle);
+            $rc = $client->order($domain, $ownerHandle);
         } else {
             $this->Error[] = sprintf('No owner contact given for domain %s', $domain);
         }
@@ -150,10 +120,12 @@ class Neostrada implements IRegistrar
      */
     public function transferDomain($domain, $nameservers = [], $whois = null, $authCode = '')
     {
+        $client = new Client($this->Password);
+
         $rc = false;
 
         if ($ownerHandle = $this->getHandle($whois, HANDLE_OWNER)) {
-            $rc = $this->placeOrder($domain, $ownerHandle, $authCode);
+            $rc = $client->order($domain, $ownerHandle, 1, $authCode);
         } else {
             $this->Error[] = sprintf('No owner contact given for domain %s', $domain);
         }
@@ -176,24 +148,13 @@ class Neostrada implements IRegistrar
      */
     public function deleteDomain($domain, $type = 'end')
     {
+        $client = new Client($this->Password);
+
         $rc = false;
 
-        try {
-            $response = $this->client->delete('domain/delete/'.$domain, [
-                RequestOptions::QUERY => [
-                    'access_token' => $this->Password
-                ]
-            ]);
-
-            if ($response->getStatusCode() === 200) {
-                if (
-                    ($deletedDomain = json_decode($response->getBody()->getContents(), true)) &&
-                    $deletedDomain['status'] == 'cancelled'
-                ) {
-                    $rc = true;
-                }
-            }
-        } catch (Exception $exception) {}
+        if ($client->deleteDomain($domain)) {
+            $rc = true;
+        }
 
         return $rc;
     }
@@ -207,9 +168,23 @@ class Neostrada implements IRegistrar
      */
     public function getDomainInformation($domain)
     {
-        $this->Error[] = 'Retrieving information about a single domain is currently not supported';
+        $client = new Client($this->Password);
 
-        return false;
+        $rc = false;
+
+        if ($domain = $client->getDomain($domain)) {
+            $rc = [
+                'Domain' => $domain['description'],
+                'Information' => [
+                    'expiration_date' => (new DateTime($domain['paid_until']))->format('Y-m-d'),
+                    'registration_date' => (new DateTime($domain['start_date']))->format('Y-m-d')
+                ]
+            ];
+        } else {
+            $this->Error[] = 'Could not fetch domain';
+        }
+
+        return $rc;
     }
 
     /**
@@ -219,39 +194,22 @@ class Neostrada implements IRegistrar
      * @return array|bool
      */
     function getDomainList($contactHandle = '') {
+        $client = new Client($this->Password);
+
         $rc = [];
 
-        try {
-            $response = $this->client->get('domains', [
-                RequestOptions::QUERY => [
-                    'access_token' => $this->Password
-                ]
-            ]);
-
-            if ($response->getStatusCode() === 200) {
-                $domains = json_decode($response->getBody()->getContents(), true);
-
-                foreach ($domains as $domain) {
-                    if (!$domain['is_external']) {
-                        $expirationDate = new DateTime($domain['paid_untill']);
-                        $registrationDate = new DateTime($domain['start_date']);
-
-                        $rc[] = [
-                            'Domain' => $domain['description'],
-                            'Information' => [
-                                'expiration_date' => $expirationDate->format('Y-m-d'),
-                                'registration_date' => $registrationDate->format('Y-m-d')
-                            ]
-                        ];
-                    }
-                }
+        if ($domains = $client->getDomains()) {
+            foreach ($domains as $domain) {
+                $rc[] = [
+                    'Domain' => $domain['description'],
+                    'Information' => [
+                        'expiration_date' => (new DateTime($domain['paid_until']))->format('Y-m-d'),
+                        'registration_date' => (new DateTime($domain['start_date']))->format('Y-m-d')
+                    ]
+                ];
             }
-        } catch (Exception $exception) {}
-
-        if (empty($rc)) {
-            $rc = false;
-
-            $this->Error[] = 'Domains could not be retrieved';
+        } else {
+            $this->Error[] = 'Could not retrieve domains';
         }
 
         return $rc;
@@ -305,47 +263,49 @@ class Neostrada implements IRegistrar
      */
     public function getSyncData($domainsToSync)
     {
+        $client = new Client($this->Password);
+
         $hostfactDomains = [];
 
-        try {
-            $response = $this->client->get('domains', [
-                RequestOptions::QUERY => [
-                    'access_token' => $this->Password
-                ]
-            ]);
+        if ($domains = $client->getDomains()) {
+            foreach ($domains as $domain) {
+                // Only continue when the domain is not external
+                if (!$domain['is_external']) {
+                    $fetchedDomain = $domain['description'];
 
-            if ($response->getStatusCode() === 200) {
-                if ($fetchedDomains = json_decode($response->getBody()->getContents(), true)) {
-                    foreach ($fetchedDomains as $fetchedDomain) {
-                        // Only continue when the domain is not external
-                        if (!$fetchedDomain['is_external']) {
-                            $domain = $fetchedDomain['description'];
+                    // Domain is found
+                    if (isset($domainsToSync[$fetchedDomain])) {
+                        if (isset($domain['paid_until']) && !empty($domain['paid_until'])) {
+                            $expiresAt = DateTime::createFromFormat(DATE_ATOM, $domain['paid_until']);
 
-                            // Domain is found
-                            if (isset($domainsToSync[$domain])) {
-                                $expirationDate = new DateTime($fetchedDomain['paid_untill']);
-
-                                $hostfactDomains[$domain]['Information'] = [
-                                    'expiration_date' => $expirationDate->format('Y-m-d')
-                                ];
-
-                                $hostfactDomains[$domain]['Status'] = 'success';
-
-                                // Remove the found domain from the list in order to check which
-                                // domains could not be found
-                                unset($domainsToSync[$domain]);
-                            }
+                            $hostfactDomains[$fetchedDomain] = [
+                                'Status' => 'success',
+                                'Information' => [
+                                    'expiration_date' => $expiresAt->format('Y-m-d')
+                                ]
+                            ];
+                        } else {
+                            $hostfactDomains[$fetchedDomain] = [
+                                'Status' => 'error',
+                                'Error_msg' => 'Domain not invoiced yet'
+                            ];
                         }
+
+                        // Remove the found domain from the list in order to check which
+                        // domains could not be found
+                        unset($domainsToSync[$fetchedDomain]);
                     }
                 }
             }
-        } catch (Exception $exception) {}
+        }
 
         // Some domains could not be found
         if (!empty($domainsToSync)) {
             foreach ($domainsToSync as $domain => $domainToSync) {
-                $hostfactDomains[$domain]['Status'] = 'error';
-                $hostfactDomains[$domain]['Error_msg'] = 'Domain not found';
+                $hostfactDomains[$domain] = [
+                    'Status' => 'error',
+                    'Error_msg' => 'Domain not found'
+                ];
             }
         }
 
@@ -360,9 +320,31 @@ class Neostrada implements IRegistrar
      */
     public function updateDomainWhois($domain, $whois)
     {
-        $this->Error[] = 'Directly updating the WHOIS is not supported because the WHOIS information is managed through handles.';
+        $client = new Client($this->Password);
 
-        return false;
+        $holders = [];
+
+        if (isset($whois->ownerRegistrarHandles['neostrada'])) {
+            $holders['registrar'] = $whois->ownerRegistrarHandles['neostrada'];
+        }
+
+        if (isset($whois->adminRegistrarHandles['neostrada'])) {
+            $holders['admin'] = $whois->adminRegistrarHandles['neostrada'];
+        }
+
+        if (isset($whois->techRegistrarHandles['neostrada'])) {
+            $holders['tech'] = $whois->techRegistrarHandles['neostrada'];
+        }
+
+        $rc = false;
+
+        if (!empty($holders) && $client->updateDomainHolders($domain, $holders)) {
+            $rc = true;
+        } else {
+            $this->Error[] = 'Could not update domain holders.';
+        }
+
+        return $rc;
     }
 
     /**
@@ -387,6 +369,8 @@ class Neostrada implements IRegistrar
      */
     public function createContact($whois, $type = HANDLE_OWNER)
     {
+        $client = new Client($this->Password);
+
         $prefix = '';
 
         switch ($type) {
@@ -403,39 +387,23 @@ class Neostrada implements IRegistrar
                 break;
         }
 
+        $holderId = $client->createHolder([
+            'firstname' => $whois->{$prefix.'Initials'},
+            'lastname' => $whois->{$prefix.'SurName'},
+            'phone_number' => $whois->{$prefix.'PhoneNumber'},
+            'street' => $whois->{$prefix.'Address'},
+            'zipcode' => $whois->{$prefix.'ZipCode'},
+            'city' => $whois->{$prefix.'City'},
+            'country_code' => $whois->{$prefix.'Country'},
+            'email' => $whois->{$prefix.'EmailAddress'},
+        ]);
+
         $rc = false;
 
-        if ($countryId = $this->getCountryId($whois->{$prefix.'Country'})) {
-            $data = [
-                'firstname' => $whois->{$prefix.'Initials'},
-                'lastname' => $whois->{$prefix.'SurName'},
-                'phone_number' => $whois->{$prefix.'PhoneNumber'},
-                'street' => $whois->{$prefix.'Address'},
-                'zipcode' => $whois->{$prefix.'ZipCode'},
-                'city' => $whois->{$prefix.'City'},
-                'country_id' => $countryId,
-                'email' => $whois->{$prefix.'EmailAddress'},
-                'is_module' => true,
-                'access_token' => $this->Password
-            ];
-
-            if ($companyName = $whois->{$prefix.'CompanyName'}) {
-                $data['company'] = $companyName;
-            }
-
-            try {
-                $response = $this->client->post('holders/add', [
-                    RequestOptions::FORM_PARAMS => $data
-                ]);
-
-                if ($response->getStatusCode() === 200) {
-                    if ($registrarHandle = json_decode($response->getBody()->getContents(), true)) {
-                        $rc = $registrarHandle['holder_id'];
-                    }
-                }
-            } catch (Exception $exception) {
-                $this->Error[] = 'Contact could not be created. Please make sure that you have filled in all required fields: first name, last name, address, postal code, city, country, phone number, email address';
-            }
+        if ($holderId) {
+            $rc = $holderId;
+        } else {
+            $this->Error[] = 'Could not create contact';
         }
 
         return $rc;
@@ -450,6 +418,8 @@ class Neostrada implements IRegistrar
      * @return bool
      */
     public function updateContact($handle, $whois, $type = HANDLE_OWNER) {
+        $client = new Client($this->Password);
+
         $prefix = '';
 
         switch ($type) {
@@ -466,36 +436,24 @@ class Neostrada implements IRegistrar
                 break;
         }
 
+        $holderId = $client->updateHolder($handle, [
+            'company' => $whois->{$prefix.'CompanyName'},
+            'firstname' => $whois->{$prefix.'Initials'},
+            'lastname' => $whois->{$prefix.'SurName'},
+            'phone_number' => $whois->{$prefix.'PhoneNumber'},
+            'street' => $whois->{$prefix.'Address'},
+            'zipcode' => $whois->{$prefix.'ZipCode'},
+            'city' => $whois->{$prefix.'City'},
+            'country_code' => $whois->{$prefix.'Country'},
+            'email' => $whois->{$prefix.'EmailAddress'},
+        ]);
+
         $rc = false;
 
-        $countryId = $this->getCountryId($whois->{$prefix.'Country'});
-
-        if ($countryId > 0) {
-            try {
-                $response = $this->client->patch('holders/edit/'.$handle, [
-                    RequestOptions::FORM_PARAMS => [
-                        'company' => $whois->{$prefix.'CompanyName'},
-                        'firstname' => $whois->{$prefix.'Initials'},
-                        'lastname' => $whois->{$prefix.'SurName'},
-                        'phone_number' => $whois->{$prefix.'PhoneNumber'},
-                        'street' => $whois->{$prefix.'Address'},
-                        'zipcode' => $whois->{$prefix.'ZipCode'},
-                        'city' => $whois->{$prefix.'City'},
-                        'country_id' => $countryId,
-                        'email' => $whois->{$prefix.'EmailAddress'},
-                        'is_module' => true,
-                        'access_token' => $this->Password
-                    ]
-                ]);
-
-                if ($response->getStatusCode() === 200) {
-                    $rc = true;
-                }
-            } catch (Exception $exception) {}
-        }
-
-        if (!$rc) {
-            $this->Error[] = 'Contact could not be updated';
+        if ($holderId) {
+            $rc = true;
+        } else {
+            $this->Error[] = 'Could not update contact';
         }
 
         return $rc;
@@ -509,46 +467,30 @@ class Neostrada implements IRegistrar
      */
     public function getContact($handle)
     {
-        $fetchedContact = false;
+        $client = new Client($this->Password);
 
         $whois = new whois();
 
-        if ($countries = $this->getCountries()) {
-            try {
-                $response = $this->client->get('holders', [
-                    RequestOptions::QUERY => [
-                        'access_token' => $this->Password
-                    ]
-                ]);
+        if ($holders = $client->getHolders() && $client->getCountries()) {
+            foreach ($holders as $holder) {
+                if (
+                    $holder['holder_id'] == $handle &&
+                    $country = $client->getCountryById($holder['country_id'])
+                ) {
+                    $whois->ownerCompanyName = $holder['company'];
+                    $whois->ownerInitials = $holder['firstname'];
+                    $whois->ownerSurName = $holder['lastname'];
+                    $whois->ownerAddress = $holder['street'];
+                    $whois->ownerZipCode = $holder['zipcode'];
+                    $whois->ownerCity = $holder['city'];
+                    $whois->ownerCountry = $country['code'];
+                    $whois->ownerPhoneNumber = $holder['phone_number'];
+                    $whois->ownerEmailAddress = $holder['email'];
 
-                if ($response->getStatusCode() === 200) {
-                    if ($holders = json_decode($response->getBody()->getContents(), true)) {
-                        foreach ($holders as $holder) {
-                            if (
-                                $holder['holder_id'] == $handle &&
-                                $country = $this->getCountryById($holder['country_id'], $countries)
-                            ) {
-                                $fetchedContact = true;
-
-                                $whois->ownerCompanyName = $holder['company'];
-                                $whois->ownerInitials = $holder['firstname'];
-                                $whois->ownerSurName = $holder['lastname'];
-                                $whois->ownerAddress = $holder['street'];
-                                $whois->ownerZipCode = $holder['zipcode'];
-                                $whois->ownerCity = $holder['city'];
-                                $whois->ownerCountry = $country['code'];
-                                $whois->ownerPhoneNumber = $holder['phone_number'];
-                                $whois->ownerEmailAddress = $holder['email'];
-
-                                break;
-                            }
-                        }
-                    }
+                    break;
                 }
-            } catch (Exception $exception) {}
-        }
-
-        if (!$fetchedContact) {
+            }
+        } else {
             $this->Error[] = 'Contact could not be retrieved';
         }
 
@@ -564,6 +506,8 @@ class Neostrada implements IRegistrar
      */
     public function getContactHandle($whois, $type = HANDLE_OWNER)
     {
+        $client = new Client($this->Password);
+
         $prefix = '';
 
         switch ($type) {
@@ -580,64 +524,63 @@ class Neostrada implements IRegistrar
                 break;
         }
 
+        $holderId = $client->findHolderId([
+            'company' => $whois->{$prefix.'CompanyName'},
+            'firstname' => $whois->{$prefix.'Initials'},
+            'lastname' => $whois->{$prefix.'SurName'},
+            'street' => $whois->{$prefix.'Address'},
+            'zipcode' => $whois->{$prefix.'ZipCode'},
+            'city' => $whois->{$prefix.'City'},
+            'email' => $whois->{$prefix.'EmailAddress'}
+        ]);
+
         $rc = 0;
 
-        if ($handle = $this->getContactList($whois->{$prefix.'EmailAddress'})) {
-            $rc = $handle['Handle'];
+        if ($holderId) {
+            $rc = $holderId;
         }
 
         return $rc;
     }
 
     /**
-     * Get a list of domains holder using the API.
+     * Get a list of domain holders.
      *
-     * @param string $emailAddress
+     * @param string $surname
      * @return array
      */
-    public function getContactList($emailAddress = '')
+    public function getContactList($surname = '')
     {
+        $client = new Client($this->Password);
+
         $rc = [];
 
-        if ($countries = $this->getCountries()) {
-            try {
-                $response = $this->client->get('holders', [
-                    RequestOptions::QUERY => [
-                        'access_token' => $this->Password
-                    ]
-                ]);
+        if ($holders = $client->getHolders() && $client->getCountries()) {
+            foreach ($holders as $holder) {
+                // Get the country code based on the country ID
+                if ($country = $client->getCountryById($holder['country_id'])) {
+                    $holder = [
+                        'Handle' => $holder['holder_id'],
+                        'CompanyName' => $holder['company'],
+                        'Initials' => $holder['firstname'],
+                        'SurName' => $holder['lastname'],
+                        'PhoneNumber' => $holder['phone_number'],
+                        'Address' => $holder['street'],
+                        'ZipCode' => $holder['zipcode'],
+                        'City' => $holder['city'],
+                        'Country' => $country['code'],
+                        'EmailAddress' => $holder['email']
+                    ];
 
-                if ($response->getStatusCode() === 200) {
-                    if ($holders = json_decode($response->getBody()->getContents(), true)) {
-                        foreach ($holders as $holder) {
-                            // Get the country code based on the country ID
-                            if ($country = $this->getCountryById($holder['country_id'], $countries)) {
-                                $mappedHolder = [
-                                    'Handle' => $holder['holder_id'],
-                                    'CompanyName' => $holder['company'],
-                                    'Initials' => $holder['firstname'],
-                                    'SurName' => $holder['lastname'],
-                                    'PhoneNumber' => $holder['phone_number'],
-                                    'Address' => $holder['street'],
-                                    'ZipCode' => $holder['zipcode'],
-                                    'City' => $holder['city'],
-                                    'Country' => $country['code'],
-                                    'EmailAddress' => $holder['email']
-                                ];
-
-                                if (!empty($emailAddress)) {
-                                    if ($holder['email'] == $emailAddress) {
-                                        $rc = $mappedHolder;
-                                        break;
-                                    }
-                                } else {
-                                    $rc[] = $mappedHolder;
-                                }
-                            }
+                    if (!empty($surname)) {
+                        if ($holder['SurName'] == $surname) {
+                            $rc[] = $holder;
                         }
+                    } else {
+                        $rc[] = $holder;
                     }
                 }
-            } catch (Exception $exception) {}
+            }
         }
 
         return $rc;
@@ -651,8 +594,19 @@ class Neostrada implements IRegistrar
      * @return bool
      */
     public function updateNameServers($domain, $nameservers = []) {
-        $this->Error[] = 'Changing nameservers is not supported yet';
-        return false;
+        $client = new Client($this->Password);
+
+        $rc = false;
+
+        $client->deleteCurrentNameservers($domain);
+
+        if ($client->addNameservers($domain, $nameservers)) {
+            $rc = true;
+        } else {
+            $this->Error[] = 'Could not update nameservers';
+        }
+
+        return $rc;
     }
 
     /**
@@ -710,164 +664,6 @@ class Neostrada implements IRegistrar
 
                 $rc = $handle;
             }
-        }
-
-        return $rc;
-    }
-
-    /**
-     * Get a country's ID by its country code.
-     *
-     * @param $countryCode
-     * @param array $countries
-     * @return int
-     */
-    private function getCountryId($countryCode, $countries = [])
-    {
-        $rc = 0;
-
-        // Fetch countries from the API if they're not provided
-        if (empty($countries)) {
-            $countries = $this->getCountries();
-        }
-
-        if ($countries) {
-            foreach ($countries as $country) {
-                if ($country['code'] == $countryCode) {
-                    $rc = $country['country_id'];
-                    break;
-                }
-            }
-        }
-
-        return $rc;
-    }
-
-    /**
-     * Get a country by its ID.
-     *
-     * @param $countryId
-     * @return array|mixed
-     */
-    private function getCountryById($countryId, $countries = [])
-    {
-        $rc = [];
-
-        // Fetch countries from the API if they're not provided
-        if (empty($countries)) {
-            $countries = $this->getCountries();
-        }
-
-        if ($countries) {
-            foreach ($countries as $country) {
-                if ($country['country_id'] == $countryId) {
-                    $rc = $country;
-                    break;
-                }
-            }
-        }
-
-        return $rc;
-    }
-
-    /**
-     * Get a list of all available countries.
-     *
-     * @return array|mixed
-     */
-    private function getCountries()
-    {
-        $rc = [];
-
-        try {
-            $response = $this->client->get('countries', [
-                RequestOptions::QUERY => [
-                    'access_token' => $this->Password
-                ]
-            ]);
-
-            if ($response->getStatusCode() === 200) {
-                $rc = json_decode($response->getBody()->getContents(), true);
-            }
-        } catch (Exception $exception) {}
-
-        return $rc;
-    }
-
-    /**
-     * Get extensions.
-     *
-     * @param string $extensionToFind
-     * @return array|mixed
-     */
-    private function getExtensions($extensionToFind = '')
-    {
-        $rc = [];
-
-        try {
-            $response = $this->client->get('extensions', [
-                RequestOptions::QUERY => [
-                    'access_token' => $this->Password
-                ]
-            ]);
-
-            if ($response->getStatusCode() === 200) {
-                if ($extensions = json_decode($response->getBody()->getContents(), true)) {
-                    if (!empty($extensionToFind)) {
-                        $extensionToFind = trim($extensionToFind, '.');
-
-                        foreach ($extensions as $extension) {
-                            if ($extension['extension'] == $extensionToFind) {
-                                $rc = $extension;
-                                break;
-                            }
-                        }
-                    } else {
-                        $rc = $extensions;
-                    }
-                }
-            }
-        } catch (Exception $exception) {}
-
-        return $rc;
-    }
-
-    /**
-     * Place a domain order.
-     *
-     * @param $domain
-     * @param $handle
-     * @param string $authCode
-     * @return bool
-     */
-    private function placeOrder($domain, $handle, $authCode = '')
-    {
-        $rc = false;
-
-        list($sld, $tld) = explode('.', $domain, 2);
-
-        if ($extension = $this->getExtensions($tld)) {
-            $data = [
-                'extension_id' => $extension['extension_id'],
-                'domain' => $domain,
-                'holder_id' => $handle,
-                'year' => 1,
-                'access_token' => $this->Password
-            ];
-
-            if (!empty($authCode)) {
-                $data['authcode'] = $authCode;
-            }
-
-            try {
-                $response = $this->client->post('orders/add/', [
-                    RequestOptions::FORM_PARAMS => $data
-                ]);
-
-                if ($response->getStatusCode() === 200) {
-                    $rc = true;
-                }
-            } catch (Exception $exception) {}
         }
 
         return $rc;
