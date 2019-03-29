@@ -2,9 +2,6 @@
 
 This module enables resellers of Neostrada to sell domain registrations and transfers through HostFact.
 
-### Disclamer
-This module is currently in beta. It is strongly recommended to use this module in your test environment only. Using it in production is at your own risk.
-
 ## Installation
 ### Step 1
 Download the [Neostrada HostFact module](https://github.com/neostrada/hostfact/archive/master.zip). Upload the `neostrada` directory to the `/Pro/3rdparty/domain` directory.
