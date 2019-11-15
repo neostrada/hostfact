@@ -240,9 +240,17 @@ class Neostrada implements IRegistrar
      * @return bool
      */
     public function setDomainAutoRenew($domain, $autorenew = true) {
-        $this->Error[] = 'Changing the automatic renewal is not supported';
+        $client = new Client($this->Password);
 
-        return false;
+        $this->Error[] = 'Could not change the auto renew status';
+
+        if ($autorenew) {
+            $rc = $client->reactivateDomain($domain);
+        } else {
+            $rc = $client->deleteDomain($domain);
+        }
+
+        return $rc;
     }
 
     /**

@@ -457,15 +457,22 @@ class Client
      */
     public function deleteDomain($domain)
     {
-        $rc = null;
-
         $response = $this->client->delete("domain/delete/{$domain}");
 
-        if ($this->success($response)) {
-            $rc = true;
-        }
+        return $this->success($response);
+    }
 
-        return $rc;
+    /**
+     * Reactivate a domain.
+     *
+     * @param $domain
+     * @return bool
+     */
+    public function reactivateDomain($domain)
+    {
+        $response = $this->client->post("domains/{$domain}/reactivate");
+
+        return $this->success($response);
     }
 
     /**
