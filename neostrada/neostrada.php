@@ -7,7 +7,6 @@ require_once 'Http.php';
 require_once 'Client.php';
 
 use Neostrada\Client;
-use GuzzleHttp\RequestOptions;
 
 class Neostrada implements IRegistrar
 {
@@ -164,7 +163,8 @@ class Neostrada implements IRegistrar
      * Get information about the specified domain.
      *
      * @param $domain
-     * @return bool
+     * @return array|bool
+     * @throws Exception
      */
     public function getDomainInformation($domain)
     {
@@ -191,7 +191,8 @@ class Neostrada implements IRegistrar
      * Get a list of all domains.
      *
      * @param string $contactHandle
-     * @return array|bool
+     * @return array
+     * @throws Exception
      */
     function getDomainList($contactHandle = '') {
         $client = new Client($this->Password);
@@ -252,7 +253,15 @@ class Neostrada implements IRegistrar
      */
     public function getToken($domain)
     {
-        $this->Error[] = 'Fetching the transfer token is not supported';
+        $client = new Client($this->Password);
+
+        $this->Error[] = 'Could not fetch transfer token';
+
+        $domain = $client->getDomain($domain);
+
+        if ($domain && isset($domain['auth_code'])) {
+            return $domain['auth_code'];
+        }
 
         return false;
     }
