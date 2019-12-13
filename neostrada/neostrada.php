@@ -80,6 +80,21 @@ class Neostrada implements IRegistrar
     }
 
     /**
+     * Get an array with nameservers we can use with the API.
+     *
+     * @param $nameservers
+     * @return array
+     */
+    private function getUsableNameservers($nameservers)
+    {
+        return array_filter([
+            $nameservers['ns1'],
+            $nameservers['ns2'],
+            $nameservers['ns3']
+        ]);
+    }
+
+    /**
      * Register a domain.
      *
      * @param $domain
@@ -91,18 +106,33 @@ class Neostrada implements IRegistrar
     {
         $client = new Client($this->Password);
 
-        $rc = false;
+        $nameservers = $this->getUsableNameservers($nameservers);
 
-        if ($ownerHandle = $this->getHandle($whois, HANDLE_OWNER)) {
-            $rc = $client->order($domain, $ownerHandle);
-        } else {
-            $this->Error[] = sprintf('No owner contact given for domain %s', $domain);
+        $holder = 0;
+
+        if (isset($whois->ownerRegistrarHandles['neostrada'])) {
+            $holder = $whois->ownerRegistrarHandles['neostrada'];
         }
 
-        if (!$rc) {
-            $this->Error[] = sprintf('The domain %s could not be registered', $domain);
-        } else {
+        // TODO: set all holder types during registration when the API allows it
+        /*
+        if (isset($whois->adminRegistrarHandles['neostrada'])) {
+            $holders['admin'] = $whois->adminRegistrarHandles['neostrada'];
+        }
+
+        if (isset($whois->techRegistrarHandles['neostrada'])) {
+            $holders['tech'] = $whois->techRegistrarHandles['neostrada'];
+        }
+        */
+
+        $rc = false;
+
+        if ($client->order($domain, $holder, $nameservers)) {
             $this->Period = 1;
+
+            $rc = true;
+        } else {
+            $this->Error[] = sprintf('The domain %s could not be registered', $domain);
         }
 
         return $rc;
@@ -121,18 +151,22 @@ class Neostrada implements IRegistrar
     {
         $client = new Client($this->Password);
 
-        $rc = false;
+        $nameservers = $this->getUsableNameservers($nameservers);
 
-        if ($ownerHandle = $this->getHandle($whois, HANDLE_OWNER)) {
-            $rc = $client->order($domain, $ownerHandle, 1, $authCode);
-        } else {
-            $this->Error[] = sprintf('No owner contact given for domain %s', $domain);
+        $holder = 0;
+
+        if (isset($whois->ownerRegistrarHandles['neostrada'])) {
+            $holder = $whois->ownerRegistrarHandles['neostrada'];
         }
 
-        if (!$rc) {
-            $this->Error[] = sprintf('The domain %s could not be transferred', $domain);
-        } else {
+        $rc = false;
+
+        if ($client->order($domain, $holder, $nameservers, 1, $authCode)) {
             $this->Period = 1;
+
+            $rc = true;
+        } else {
+            $this->Error[] = sprintf('The domain %s could not be transferred', $domain);
         }
 
         return $rc;
@@ -614,6 +648,8 @@ class Neostrada implements IRegistrar
      */
     public function updateNameServers($domain, $nameservers = []) {
         $client = new Client($this->Password);
+
+        $nameservers = $this->getUsableNameservers($nameservers);
 
         $rc = false;
 

@@ -629,11 +629,12 @@ class Client
      *
      * @param $domain
      * @param $holderId
-     * @param $authCode
-     * @param $years
-     * @return bool
+     * @param array $nameservers
+     * @param int $years
+     * @param string $authCode
+     * @return bool|null
      */
-    public function order($domain, $holderId, $years = 1, $authCode = '')
+    public function order($domain, $holderId, $nameservers = [], $years = 1, $authCode = '')
     {
         $rc = null;
 
@@ -650,7 +651,8 @@ class Client
                     'extension_id' => $extension['extension_id'],
                     'domain' => $domain,
                     'holder_id' => $holderId,
-                    'year' => $years
+                    'year' => $years,
+                    'nameservers' => $nameservers
                 ];
 
                 // Add the auth code to the request to make it a transfer
