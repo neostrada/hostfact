@@ -127,12 +127,14 @@ class Neostrada implements IRegistrar
 
         $rc = false;
 
-        if ($client->order($domain, $holder, $nameservers)) {
+        list ($success, $message) = $client->order($domain, $holder, $nameservers);
+
+        if ($success) {
             $this->Period = 1;
 
             $rc = true;
         } else {
-            $this->Error[] = sprintf('The domain %s could not be registered', $domain);
+            $this->Error[] = sprintf('The domain %s could not be registered. Message from registrar: %s', $domain, $message);
         }
 
         return $rc;
@@ -161,12 +163,14 @@ class Neostrada implements IRegistrar
 
         $rc = false;
 
-        if ($client->order($domain, $holder, $nameservers, 1, $authCode)) {
+        list ($success, $message) = $client->order($domain, $holder, $nameservers, 1, $authCode);
+
+        if ($success) {
             $this->Period = 1;
 
             $rc = true;
         } else {
-            $this->Error[] = sprintf('The domain %s could not be transferred', $domain);
+            $this->Error[] = sprintf('The domain %s could not be transferred. Message from registrar: %s', $domain, $message);
         }
 
         return $rc;
