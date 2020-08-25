@@ -632,11 +632,11 @@ class Client
      * @param array $nameservers
      * @param int $years
      * @param string $authCode
-     * @return bool|null
+     * @return array
      */
     public function order($domain, $holderId, $nameservers = [], $years = 1, $authCode = '')
     {
-        $rc = null;
+        $rc = [false, ''];
 
         $parts = explode('.', $domain, 2);
 
@@ -661,10 +661,16 @@ class Client
                 }
 
                 $response = $this->client->post('orders/add/', $payload);
+                
+                $result = json_decode((string) $response->getBody(), true);
+                
+                $success = false;
 
                 if ($this->success($response)) {
-                    $rc = true;
+                    $success = true;
                 }
+                
+                $rc = [$success, $result['message'] ?? ''];
             }
         }
 
