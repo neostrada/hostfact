@@ -112,6 +112,8 @@ class Neostrada implements IRegistrar
 
         if (isset($whois->ownerRegistrarHandles['neostrada'])) {
             $holder = $whois->ownerRegistrarHandles['neostrada'];
+        } else {
+            $holder = $this->getHandle($whois, HANDLE_OWNER);
         }
 
         // TODO: set all holder types during registration when the API allows it
@@ -159,6 +161,8 @@ class Neostrada implements IRegistrar
 
         if (isset($whois->ownerRegistrarHandles['neostrada'])) {
             $holder = $whois->ownerRegistrarHandles['neostrada'];
+        } else {
+            $holder = $this->getHandle($whois, HANDLE_OWNER);
         }
 
         $rc = false;
